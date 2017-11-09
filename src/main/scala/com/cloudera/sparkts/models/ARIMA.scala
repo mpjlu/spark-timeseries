@@ -331,7 +331,9 @@ object ARIMA {
     // Conduct a local search for a best model by varying p and q around the current best. We stop
     // when no models with nearby p's and q's exceed the AIC of the current best.
     while (!done) {
+      var curParam = nextParams(nextParams.length-1)
       pastParams ++= nextParams
+
       // Fit models to next params.
       val models = nextParams.map { case (p, q, intercept) =>
         fitTryBothStrategies(p, q, diffedTs, intercept)
@@ -343,31 +345,33 @@ object ARIMA {
         model => (model, model.approxAIC(diffedTs)))
       val improvingModelsAndAICs = modelsAndAICs.filter(_._2 < curBestAIC)
 
-      if (improvingModelsAndAICs.isEmpty) {
-        done = true
-      } else {
-        // Pick params for next iteration based on new incumbent model
+      // Pick params for next iteration based on new incumbent model
+      if(!improvingModelsAndAICs.isEmpty) {
         val newBest = improvingModelsAndAICs.minBy(_._2)
         curBestModel = newBest._1
         curBestAIC = newBest._2
+        curParam = (curBestModel.p, curBestModel.q, curBestModel.hasIntercept)
+      }
 
-        // Try variations of +-1 p and q around the current model, along with keeping p and q the
-        // same, but flipping whether to include an intercept.
-        val deltas = List(-1, 0, 1)
-        // Each param tuple is a triple of (p, q, includeIntercept)
-        val surroundingParams = for { pDelta <- deltas; qDelta <- deltas } yield {
-          val includeIntercept = if (pDelta == 0 && qDelta == 0) {
-            !curBestModel.hasIntercept
-          } else {
-            curBestModel.hasIntercept
-          }
-          (curBestModel.p + pDelta, curBestModel.q, includeIntercept)
+      // Try variations of +-1 p and q around the current model, along with keeping p and q the
+      // same, but flipping whether to include an intercept.
+      val deltas = List(-1, 0, 1)
+      // Each param tuple is a triple of (p, q, includeIntercept)
+      val surroundingParams = for { pDelta <- deltas; qDelta <- deltas } yield {
+        val includeIntercept = if (pDelta == 0 && qDelta == 0) {
+          !curParam._3
+        } else {
+          curParam._3
         }
+        (curParam._1 + pDelta, curParam._2 + qDelta, includeIntercept)
+      }
 
-        // Filter out params we've already tried, as well as params that are outside our p and q
-        // bounds.
-        nextParams = surroundingParams.filter(params => !pastParams.contains(params) &&
-          params._1 >= 0 && params._1 <= maxP && params._2 >= 0 && params._2 <= maxQ)
+      // Filter out params we've already tried, as well as params that are outside our p and q
+      // bounds.
+      nextParams = surroundingParams.filter(params => !pastParams.contains(params) &&
+        params._1 >= 0 && params._1 <= maxP && params._2 >= 0 && params._2 <= maxQ)
+      if(nextParams.isEmpty) {
+        done = true
       }
     }
 
